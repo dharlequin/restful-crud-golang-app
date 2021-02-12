@@ -5,22 +5,26 @@ ENV GO111MODULE=on \
     GOOS=linux \
     GOARCH=amd64
 
-WORKDIR /build
+RUN apk update && apk add --no-cache git
 
-COPY go.mod .
-COPY go.sum .
+WORKDIR /app
+
+COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
 
-RUN go build -o main .
+RUN go build -a -installsuffix cgo -o main .
 
-WORKDIR /dist
+FROM alpine:latest
+RUN apk --no-cache add ca-certificates
 
-RUN cp /build/main .
+WORKDIR /root/
 
-FROM scratch
+COPY --from=builder /app/main .
+COPY --from=builder /app/.env .
 
-COPY --from=builder /dist/main /
 
-ENTRYPOINT ["/main"]
+EXPOSE 8080
+
+CMD ["./main"]
