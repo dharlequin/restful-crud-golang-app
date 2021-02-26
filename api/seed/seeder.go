@@ -11,10 +11,12 @@ var users = []models.User{
 	{
 		Nickname: "Steven Victor",
 		Email:    "steven@gmail.com",
+		Password: "password",
 	},
 	{
 		Nickname: "Martin Luther",
 		Email:    "luther@gmail.com",
+		Password: "password",
 	},
 }
 

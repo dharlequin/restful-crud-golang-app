@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -12,38 +13,6 @@ import (
 	"github.com/dharlequin/restful-crud-golang-app/api/utils/formaterror"
 	"github.com/gorilla/mux"
 )
-
-//CreateUser creates new User and saves to DB
-func (server *Server) CreateUser(w http.ResponseWriter, r *http.Request) {
-
-	body, err := ioutil.ReadAll(r.Body)
-	if err != nil {
-		responses.ERROR(w, http.StatusUnprocessableEntity, err)
-	}
-	user := models.User{}
-	err = json.Unmarshal(body, &user)
-	if err != nil {
-		responses.ERROR(w, http.StatusUnprocessableEntity, err)
-		return
-	}
-	user.Prepare()
-	err = user.Validate()
-	if err != nil {
-		responses.ERROR(w, http.StatusUnprocessableEntity, err)
-		return
-	}
-	userCreated, err := user.SaveUser(server.DB)
-
-	if err != nil {
-
-		formattedError := formaterror.FormatError(err.Error())
-
-		responses.ERROR(w, http.StatusInternalServerError, formattedError)
-		return
-	}
-	w.Header().Set("Location", fmt.Sprintf("%s%s/%d", r.Host, r.RequestURI, userCreated.ID))
-	responses.JSON(w, http.StatusCreated, userCreated)
-}
 
 //GetUsers gets all users from DB
 func (server *Server) GetUsers(w http.ResponseWriter, r *http.Request) {
@@ -67,8 +36,32 @@ func (server *Server) GetUser(w http.ResponseWriter, r *http.Request) {
 		responses.ERROR(w, http.StatusBadRequest, err)
 		return
 	}
+
+	_, err = getUserIDFromHeaders(r)
+	if err != nil {
+		responses.ERROR(w, http.StatusBadRequest, err)
+		return
+	}
+
 	user := models.User{}
 	userFetched, err := user.FindUserByID(server.DB, uint32(uid))
+	if err != nil {
+		responses.ERROR(w, http.StatusBadRequest, err)
+		return
+	}
+	responses.JSON(w, http.StatusOK, userFetched)
+}
+
+//getCurrentUserInfo returns current user info
+func (server *Server) getCurrentUserInfo(w http.ResponseWriter, r *http.Request) {
+	id, err := getUserIDFromHeaders(r)
+	if err != nil {
+		responses.ERROR(w, http.StatusBadRequest, err)
+		return
+	}
+
+	user := models.User{}
+	userFetched, err := user.FindUserByID(server.DB, uint32(id))
 	if err != nil {
 		responses.ERROR(w, http.StatusBadRequest, err)
 		return
@@ -94,6 +87,18 @@ func (server *Server) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	err = json.Unmarshal(body, &user)
 	if err != nil {
 		responses.ERROR(w, http.StatusUnprocessableEntity, err)
+		return
+	}
+
+	id, err := getUserIDFromHeaders(r)
+	if err != nil {
+		responses.ERROR(w, http.StatusBadRequest, err)
+		return
+	}
+
+	err = checkOwnership(uid, id)
+	if err != nil {
+		responses.ERROR(w, http.StatusBadRequest, err)
 		return
 	}
 
@@ -124,6 +129,19 @@ func (server *Server) DeleteUser(w http.ResponseWriter, r *http.Request) {
 		responses.ERROR(w, http.StatusBadRequest, err)
 		return
 	}
+
+	id, err := getUserIDFromHeaders(r)
+	if err != nil {
+		responses.ERROR(w, http.StatusBadRequest, err)
+		return
+	}
+
+	err = checkOwnership(uid, id)
+	if err != nil {
+		responses.ERROR(w, http.StatusBadRequest, err)
+		return
+	}
+
 	_, err = user.DeleteAUser(server.DB, uint32(uid))
 	if err != nil {
 		responses.ERROR(w, http.StatusInternalServerError, err)
@@ -131,4 +149,27 @@ func (server *Server) DeleteUser(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Entity", fmt.Sprintf("%d", uid))
 	responses.JSON(w, http.StatusNoContent, "")
+}
+
+func getUserIDFromHeaders(r *http.Request) (uint64, error) {
+	id := r.Header.Get("X-UserId")
+
+	if id == "" {
+		return 0, errors.New("User is not authorised")
+	}
+
+	uid, err := strconv.ParseUint(id, 10, 32)
+	if err != nil {
+		return 0, err
+	}
+
+	return uid, nil
+}
+
+func checkOwnership(pathUserID uint64, headerUserID uint64) error {
+	if pathUserID != headerUserID {
+		return errors.New("You are not authorised to do that")
+	}
+
+	return nil
 }
